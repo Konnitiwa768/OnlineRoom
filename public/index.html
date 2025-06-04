@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>スレッドチャット</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 1em auto; }
+    #threadList { border: 1px solid #ccc; padding: 10px; width: 200px; float: left; }
+    #threadList li { cursor: pointer; padding: 5px; }
+    #threadList li.active { background: #def; }
+    #chatArea { margin-left: 220px; }
+    #posts { list-style: none; padding: 0; max-height: 400px; overflow-y: auto; border: 1px solid #ccc; }
+    #posts li { border-bottom: 1px solid #ddd; padding: 5px; }
+  </style>
+</head>
+<body>
+  <h1>スレッドチャット</h1>
+  <div style="display:flex;">
+    <div id="threadListContainer">
+      <button id="createThreadBtn">新規スレッド作成</button>
+      <ul id="threadList"></ul>
+    </div>
+    <div id="chatArea" style="flex-grow:1;">
+      <h2 id="threadTitle">スレッドを選択してください</h2>
+      <ul id="posts"></ul>
+      <form id="postForm" style="display:none;">
+        <input id="postInput" autocomplete="off" placeholder="投稿内容を入力" style="width: 70%;" />
+        <button>投稿</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    const threadListEl = document.getElementById('threadList');
+    const threadTitleEl = document.getElementById('threadTitle');
+    const postsEl = document.getElementById('posts');
+    const postForm = document.getElementById('postForm');
+    const postInput = document.getElementById('postInput');
+    const createThreadBtn = document.getElementById('createThreadBtn');
+
+    let currentThreadId = null;
+
+    // スレッド一覧の更新
+    function updateThreadList(threads) {
+      threadListEl.innerHTML = '';
+      threads.forEach(({ id, count }) => {
+        const li = document.createElement('li');
+        li.textContent = `${id} (${count}件)`;
+        li.dataset.threadId = id;
+        if (id === currentThreadId) li.classList.add('active');
+        li.onclick = () => {
+          currentThreadId = id;
+          threadTitleEl.textContent = id;
+          postForm.style.display = 'block';
+          postsEl.innerHTML = '';
+          // ここで過去投稿をサーバーから受け取る実装があれば良いが今回はメモリ上だけ
+        };
+        threadListEl.appendChild(li);
+      });
+    }
+
+    // スレッド作成ボタン押下時
+    createThreadBtn.onclick = () => {
+      const name = prompt('新しいスレッド名を入力してください');
+      if (!name) return alert('スレッド名が必要です');
+      socket.emit('createThread', name, (res) => {
+        if (res.error) alert(res.error);
+        else {
+          currentThreadId = res.threadId;
+          threadTitleEl.textContent = res.threadId;
+          postForm.style.display = 'block';
+          postsEl.innerHTML = '';
+        }
+      });
+    };
+
+    // 投稿フォーム送信
+    postForm.onsubmit = e => {
+      e.preventDefault();
+      if (!currentThreadId) return alert('スレッドを選択してください');
+      const msg = postInput.value.trim();
+      if (!msg) return;
+      socket.emit('postMessage', { threadId: currentThreadId, msg });
+      postInput.value = '';
+    };
+
+    // サーバーからスレッド一覧受信
+    socket.on('threadList', updateThreadList);
+
+    // 新しい投稿受信
+    socket.on('newPost', ({ threadId, post }) => {
+      if (threadId !== currentThreadId) return; // 他スレッドは無視
+      const li = document.createElement('li');
+      li.textContent = `[${post.timestamp}] ${post.msg}`;
+      postsEl.appendChild(li);
+      postsEl.scrollTop = postsEl.scrollHeight;
+    });
+
+    // 最初にスレッド一覧をもらう
+    socket.emit('getThreads');
+  </script>
+</body>
+</html>
